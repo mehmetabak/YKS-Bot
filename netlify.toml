@@ -1,0 +1,13 @@
+[build]
+  # Fonksiyonlarımızın bulunduğu klasör
+  functions = "netlify/functions"
+
+# 'check-osym' adlı fonksiyonumuzu zamanlıyoruz
+[functions."check-osym"]
+  # Bu cron ifadesi "her 10 dakikada bir" anlamına gelir.
+  # Netlify'ın ücretsiz planı için 10-15 dakika gibi aralıklar idealdir.
+  schedule = "*/10 * * * *"
+  # Node.js 20 sürümünü kullanalım.
+  node_bundler = "esbuild"
+  node_version = 20
+  external_node_modules = ["@sparticuz/chromium"]

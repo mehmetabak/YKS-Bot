@@ -1,0 +1,20 @@
+{
+  "name": "yks-bot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@netlify/blobs": "^10.0.6",
+    "@sparticuz/chromium": "^138.0.1",
+    "chalk": "^5.4.1",
+    "node-telegram-bot-api": "^0.66.0",
+    "ora": "^8.2.0",
+    "puppeteer-core": "^24.14.0"
+  }
+}
