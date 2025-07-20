@@ -7,7 +7,8 @@ import chalk from 'chalk';
 import ora from 'ora';
 
 // --- Yapılandırma ---
-const { TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, JSONBIN_API_KEY, JSONBIN_BIN_ID } = process.env;
+// YENİ: Durum (state) bin'i için ortam değişkeni eklendi.
+const { TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, JSONBIN_API_KEY, JSONBIN_BIN_ID, JSONBIN_STATE_BIN_ID } = process.env;
 const bot = TELEGRAM_TOKEN ? new TelegramBot(TELEGRAM_TOKEN) : null;
 
 const config = {
@@ -19,8 +20,37 @@ const config = {
     resultScreenshotPath: '/tmp/result_screenshot.png',
 };
 
-// Bu fonksiyonun yapısı korunuyor.
+// --- YENİ: DURUM YÖNETİCİSİ (STATE MANAGER) ---
+// Sistemin çalışıp çalışmadığını kontrol etmek için. CookieManager'dan ilham alındı.
+const stateManager = {
+    async read() {
+        if (!JSONBIN_API_KEY || !JSONBIN_STATE_BIN_ID) {
+            console.warn(chalk.yellow('Durum deposu (JSONBin STATE_BIN_ID) yapılandırılmamış. Varsayılan olarak "ÇALIŞIYOR" kabul ediliyor.'));
+            return { status: 'RUNNING' };
+        }
+        try {
+            const response = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_STATE_BIN_ID}/latest`, {
+                method: 'GET',
+                headers: { 'X-Master-Key': JSONBIN_API_KEY }
+            });
+            if (!response.ok) throw new Error(`JSONBin API (durum okuma) hatası: ${response.statusText}`);
+            const data = await response.json();
+            // Eğer bin boşsa veya status alanı yoksa, varsayılan olarak çalışsın.
+            return data.record && data.record.status ? data.record : { status: 'RUNNING' };
+        } catch (error) {
+            console.error(chalk.red.bold('❌ Durum JSONBin\'den okunamadı, varsayılan olarak "ÇALIŞIYOR" kabul ediliyor:'), error.message);
+            return { status: 'RUNNING' };
+        }
+    },
+    // Not: Durum yazma işlemi telegram-webhook fonksiyonu tarafından yapılacak.
+    // Bu ana fonksiyonda sadece okuma yapıyoruz.
+};
+
+
+// --- MEVCUT FONKSİYONLAR (HİÇBİR DEĞİŞİKLİK YOK) ---
+
 async function sendTelegramNotification(title, message, options = {}) {
+    // ... Bu fonksiyonun içi tamamen aynı ...
     const { imagePath } = options;
     const fullMessage = `*${title}*\n\n${message}`;
 
@@ -41,8 +71,8 @@ async function sendTelegramNotification(title, message, options = {}) {
     }
 }
 
-// MİMARİNİN KALBİ: AKILLI COOKIE YÖNETİCİSİ (JSONBin.io Entegrasyonu)
 const cookieManager = {
+    // ... Bu obje ve içindeki tüm fonksiyonlar tamamen aynı ...
     async read() {
         if (!JSONBIN_API_KEY || !JSONBIN_BIN_ID) {
             console.error(chalk.red.bold('❌ JSONBin ortam değişkenleri (API_KEY, BIN_ID) eksik!'));
@@ -95,8 +125,8 @@ const cookieManager = {
     }
 };
 
-// Bu fonksiyonun yapısı korunuyor.
 async function findAndShowResult(page, keyword) {
+    // ... Bu fonksiyonun içi tamamen aynı ...
     const spinner = ora(`'${keyword.substring(0, 20)}...' sonucu görüntüleniyor...`).start();
     try {
         const newPagePromise = new Promise(x => page.browser().once('targetcreated', target => x(target.page())));
@@ -145,8 +175,23 @@ async function findAndShowResult(page, keyword) {
 }
 
 
-// NETLIFY HANDLER: Ana fonksiyonumuz (yapısı korunuyor)
+// --- NETLIFY HANDLER: Ana fonksiyonumuz (İÇİNE KÜÇÜK BİR KONTROL EKLENDİ) ---
 export const handler = async () => {
+  // --- YENİ KONTROL BLOĞU ---
+  // Fonksiyonun en başında, sistemin durumunu kontrol et.
+  const currentState = await stateManager.read();
+  if (currentState.status === 'PAUSED') {
+      const message = 'Sistem duraklatılmış. Kontrol atlanıyor.';
+      console.log(chalk.yellow(`[${new Date().toLocaleString('tr-TR')}] ⏸️  ${message}`));
+      // Fonksiyonu burada sonlandırarak token/süre harcamasını engelle.
+      return {
+          statusCode: 200,
+          body: message,
+      };
+  }
+  // --- KONTROL BLOĞU SONU ---
+
+  // Kontrol bloğu geçilirse, mevcut kodunuz eskisi gibi çalışmaya devam eder.
   const checkSpinner = ora(chalk.blue(`[${new Date().toLocaleString('tr-TR')}] 🔍 Kontrol döngüsü başlıyor...`)).start();
   let browser = null;
   let statusMessage = 'Bilinmeyen durum.';
@@ -212,11 +257,10 @@ export const handler = async () => {
       console.log(chalk.green.bold.bgWhite('🎉🎉🎉 YKS SONUCU YAYINLANDI! 🎉🎉🎉'));
       await findAndShowResult(page, config.yksKeyword);
     } 
-    // DEĞİŞİKLİK: MSÜ sonucu bulunduğunda da Telegram'a bildirim gönderilecek.
     else if (bodyText.includes(config.msuKeyword)) {
-      statusMessage = 'MSÜ SONUCU BULUNDU!'; // Durum mesajı güncellendi.
-      console.log(chalk.cyan.bold.bgWhite('🎉 MSÜ SONUCU YAYINLANDI! 🎉')); // Log mesajı daha belirgin hale getirildi.
-      await findAndShowResult(page, config.msuKeyword); // En önemli değişiklik: Sonucu bul ve gönder fonksiyonu çağrıldı.
+      statusMessage = 'MSÜ SONUCU BULUNDU!';
+      console.log(chalk.cyan.bold.bgWhite('🎉 MSÜ SONUCU YAYINLANDI! 🎉'));
+      await findAndShowResult(page, config.msuKeyword);
     } 
     else {
       statusMessage = 'Beklenen sonuç bulunamadı.';
